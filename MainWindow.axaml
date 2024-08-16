@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:vm="using:Program"
+	x:Class="Program.MainWindow"
+	Title="Battle RNG Seed Searcher"
+	SizeToContent="WidthAndHeight">
+	<StackPanel Margin="20" x:DataType="vm:MainViewModel">
+		<Design.DataContext>
+			<vm:MainViewModel/>
+		</Design.DataContext>
+		<TextBlock Margin="0 5">DS MAC Address</TextBlock>
+		<MaskedTextBox Mask="AA\:AA\:AA\:AA\:AA\:AA" Text="{CompiledBinding Path = MacAddress, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Version</TextBlock>
+		<ComboBox SelectedIndex="{CompiledBinding Path = VersionSelection, Mode = OneWayToSource}">
+			<ComboBoxItem>Black</ComboBoxItem>
+			<ComboBoxItem>White</ComboBoxItem>
+		</ComboBox>
+		<TextBlock Margin="0 5">VFrame Min</TextBlock>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMin, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">VFrame Max</TextBlock>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMax, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Date</TextBlock>
+		<DatePicker MinYear="{CompiledBinding Path = MinYear, Mode = OneWay}" MaxYear="{CompiledBinding Path = MaxYear, Mode = OneWay}" SelectedDate="{CompiledBinding Path = Date, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Hour</TextBlock>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="23" Value="{CompiledBinding Path = Hour, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Minute</TextBlock>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Minute, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Second</TextBlock>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Second, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Battle Turn Outcome</TextBlock>
+		<ComboBox SelectedIndex="{CompiledBinding Path = BattleTurnOutcomeSelection, Mode = OneWayToSource}">
+			<ComboBoxItem>Leer Miss</ComboBoxItem>
+			<ComboBoxItem>Tackle Miss</ComboBoxItem>
+			<ComboBoxItem>Leer Hit</ComboBoxItem>
+			<ComboBoxItem>Tackle Hit</ComboBoxItem>
+			<ComboBoxItem>Tackle Hit (Critical Hit)</ComboBoxItem>
+			<ComboBoxItem>Odor Sleuth</ComboBoxItem>
+		</ComboBox>
+		<Button Margin="0 5" Click="AddMoveHandler">Add Move</Button>
+		<Button Margin="0 5" Click="ComputeSeedsHandler">Compute Seeds</Button>
+		<Button Margin="0 5" Click="ResetHandler">Reset</Button>
+		<TextBox Margin="0 5" IsReadOnly="True" Text="{CompiledBinding Path = CurrentMessage, Mode = OneWay}"></TextBox>
+	</StackPanel>
+</Window>
