@@ -15,30 +15,50 @@
 			<ComboBoxItem>Black</ComboBoxItem>
 			<ComboBoxItem>White</ComboBoxItem>
 		</ComboBox>
-		<TextBlock Margin="0 5">VFrame Min</TextBlock>
-		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMin, Mode = OneWayToSource}"/>
-		<TextBlock Margin="0 5">VFrame Max</TextBlock>
-		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMax, Mode = OneWayToSource}"/>
+		<UniformGrid Margin="0 5">
+			<TextBlock Margin="0 5">VFrame Min</TextBlock>
+			<TextBlock Margin="0 5">VFrame Max</TextBlock>
+			<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMin, Mode = OneWayToSource}"/>
+			<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="9999" Value="{CompiledBinding Path = VFrameMax, Mode = OneWayToSource}"/>
+		</UniformGrid>
+		<UniformGrid Margin="0 5">
+			<TextBlock Margin="0 5">VCount Min</TextBlock>
+			<TextBlock Margin="0 5">VCount Max</TextBlock>
+			<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="262" Value="{CompiledBinding Path = VCountMin, Mode = OneWayToSource}"/>
+			<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="262" Value="{CompiledBinding Path = VCountMax, Mode = OneWayToSource}"/>
+		</UniformGrid>
 		<TextBlock Margin="0 5">Date</TextBlock>
 		<DatePicker MinYear="{CompiledBinding Path = MinYear, Mode = OneWay}" MaxYear="{CompiledBinding Path = MaxYear, Mode = OneWay}" SelectedDate="{CompiledBinding Path = Date, Mode = OneWayToSource}"/>
 		<TextBlock Margin="0 5">Hour</TextBlock>
-		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="23" Value="{CompiledBinding Path = Hour, Mode = OneWayToSource}"/>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="23" Value="{CompiledBinding Path = Hour, Mode = OneWayToSource}"/>
 		<TextBlock Margin="0 5">Minute</TextBlock>
-		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Minute, Mode = OneWayToSource}"/>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Minute, Mode = OneWayToSource}"/>
 		<TextBlock Margin="0 5">Second</TextBlock>
-		<NumericUpDown FormatString="N0" ParsingNumberStyle="Integer" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Second, Mode = OneWayToSource}"/>
-		<TextBlock Margin="0 5">Battle Turn Outcome</TextBlock>
-		<ComboBox SelectedIndex="{CompiledBinding Path = BattleTurnOutcomeSelection, Mode = OneWayToSource}">
-			<ComboBoxItem>Leer Miss</ComboBoxItem>
-			<ComboBoxItem>Tackle Miss</ComboBoxItem>
+		<NumericUpDown FormatString="N0" ParsingNumberStyle="Number" Minimum="0" Maximum="59" Value="{CompiledBinding Path = Second, Mode = OneWayToSource}"/>
+		<TextBlock Margin="0 5">Player Turn Outcome</TextBlock>
+		<ComboBox SelectedIndex="{CompiledBinding Path = PlayerTurnOutcomeSelection, Mode = OneWayToSource}">
+			<ComboBoxItem>Supersonic Hit</ComboBoxItem>
+			<ComboBoxItem>Supersonic Miss</ComboBoxItem>
+			<ComboBoxItem>Growl Hit</ComboBoxItem>
+		</ComboBox>
+		<CheckBox Margin="0 5" IsChecked="{CompiledBinding Path = QuickClawActivated, Mode = OneWayToSource}">Quick Claw Activated</CheckBox>
+		<TextBlock Margin="0 5">Enemy Turn Outcome</TextBlock>
+		<ComboBox SelectedIndex="{CompiledBinding Path = EnemyTurnOutcomeSelection, Mode = OneWayToSource}">
+			<ComboBoxItem>Confusion Self-Hit</ComboBoxItem>
 			<ComboBoxItem>Leer Hit</ComboBoxItem>
 			<ComboBoxItem>Tackle Hit</ComboBoxItem>
 			<ComboBoxItem>Tackle Hit (Critical Hit)</ComboBoxItem>
 			<ComboBoxItem>Odor Sleuth</ComboBoxItem>
 		</ComboBox>
-		<Button Margin="0 5" Click="AddMoveHandler">Add Move</Button>
-		<Button Margin="0 5" Click="ComputeSeedsHandler">Compute Seeds</Button>
-		<Button Margin="0 5" Click="ResetHandler">Reset</Button>
+		<CheckBox Margin="0 5" IsChecked="{CompiledBinding Path = SnappedOutOfConfusion, Mode = OneWayToSource}">Snapped out of Confusion</CheckBox>
+		<StackPanel Orientation="Horizontal">
+			<Button Margin="0, 5, 5, 5" Click="ComputeSeedsHandler">Compute Seeds</Button>
+			<Button Margin="5, 5, 0, 5" Click="AddTurnHandler">Add Turn</Button>
+		</StackPanel>
+		<StackPanel Orientation="Horizontal">
+			<Button Margin="0, 5, 5, 5" Click="AnySeedUniqueHandler">Check Any Seed Unique</Button>
+			<Button Margin="5, 5, 0, 5" Click="ResetHandler">Reset</Button>
+		</StackPanel>
 		<TextBox Margin="0 5" IsReadOnly="True" Text="{CompiledBinding Path = CurrentMessage, Mode = OneWay}"></TextBox>
 	</StackPanel>
 </Window>

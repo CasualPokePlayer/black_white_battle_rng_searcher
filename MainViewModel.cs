@@ -25,6 +25,12 @@ public partial class MainViewModel : ObservableObject
 	private decimal? _vFrameMax;
 
 	[ObservableProperty]
+	private decimal? _vCountMin;
+
+	[ObservableProperty]
+	private decimal? _vCountMax;
+
+	[ObservableProperty]
 	private DateTimeOffset? _date;
 
 	[ObservableProperty]
@@ -51,7 +57,8 @@ public partial class MainViewModel : ObservableObject
 		White,
 	}
 
-	private record SeedParameters(ushort LowerMac, uint UpperMac, GameVersion GameVersion, uint VFrameMin, uint VFrameMax, DateTimeOffset Date, uint Hour, uint Minute, uint Second);
+	private record SeedParameters(ushort LowerMac, uint UpperMac, GameVersion GameVersion,
+		uint VCountMin, uint VCountMax, uint VFrameMin, uint VFrameMax, DateTimeOffset Date, uint Hour, uint Minute, uint Second);
 
 	private SeedParameters CollectParameters()
 	{
@@ -85,6 +92,16 @@ public partial class MainViewModel : ObservableObject
 			throw new("VFrame Max is invalid");
 		}
 
+		if (!VCountMin.HasValue)
+		{
+			throw new("VCount Min is invalid");
+		}
+
+		if (!VCountMax.HasValue)
+		{
+			throw new("VCount Max is invalid");
+		}
+
 		if (!Date.HasValue)
 		{
 			throw new("Date is not set");
@@ -107,7 +124,8 @@ public partial class MainViewModel : ObservableObject
 
 		var lowerMac = (ushort)(macAddressBytes[4] | (macAddressBytes[5] << 8));
 		var upperMac = (uint)(macAddressBytes[0] | (macAddressBytes[1] << 8) | (macAddressBytes[2] << 16) | (macAddressBytes[3] << 24));
-		return new(lowerMac, upperMac, (GameVersion)VersionSelection, (uint)VFrameMin.Value, (uint)VFrameMax.Value, Date.Value, (uint)Hour.Value, (uint)Minute.Value, (uint)Second.Value);
+		return new(lowerMac, upperMac, (GameVersion)VersionSelection, (uint)VCountMin.Value, (uint)VCountMax.Value,
+			(uint)VFrameMin.Value, (uint)VFrameMax.Value, Date.Value, (uint)Hour.Value, (uint)Minute.Value, (uint)Second.Value);
 	}
 
 	private static readonly byte[] _blackNazos =
@@ -148,8 +166,8 @@ public partial class MainViewModel : ObservableObject
 		0x00, 0x00, 0x01, 0xA0,
 	];
 
-	public readonly record struct SeedState(ulong Seed, uint Timer0, uint VCount, uint VFrame, DateTime DateTime);
-	private record ComputeSeedThreadParam(SeedParameters SeedParameters, uint VCountStart, uint VCountEnd, ConcurrentBag<SeedState> ComputedSeeds, List<BattleTurnOutcome> BattleTurnOutcomes);
+	public readonly record struct SeedState(ulong Seed, ushort Timer0, ushort VCount, uint GxStat, uint TickCount, uint VFrame, DateTime DateTime);
+	private record ComputeSeedThreadParam(SeedParameters SeedParameters, uint Timer0Start, uint Timer0End, ConcurrentBag<SeedState> ComputedSeeds, List<BattleTurnOutcome> BattleTurnOutcomes);
 	private const uint MAX_SEEDS_ALLOWED = 165121308; // kind of arbitrary, but need to avoid running out of memory (this is the amount of seeds available in 1 vframe with 0 moves)
 
 	private static void ComputeSeedThreadProc(object? threadParam)
@@ -174,20 +192,15 @@ public partial class MainViewModel : ObservableObject
 
 		for (var vframe = param.SeedParameters.VFrameMin; vframe <= param.SeedParameters.VFrameMax; vframe++)
 		{
-			for (var vcount = param.VCountStart; vcount < param.VCountEnd; vcount++)
+			for (var vcount = param.SeedParameters.VCountMin; vcount <= param.SeedParameters.VCountMax; vcount++)
 			{
-				// each vframe takes 560190 cpu cycles
-				// every 64 cpu cycles, timer0 increments
-				var presumedTimer0 = (uint)((ulong)vframe * 560190 / 64);
-				var lowerEndTimer0 = (presumedTimer0 - (560190 / 64 + 1) * 2) & 0xFFFF;
-				const uint timer0Variance = (560190 / 64 + 1) * 4;
-
-				for (var timer0Offset = 0u; timer0Offset <= timer0Variance; timer0Offset++)
+				for (var timer0 = param.Timer0Start; timer0 < param.Timer0End; timer0++)
 				{
-					var timer0 = (lowerEndTimer0 + timer0Offset) & 0xFFFF;
 					var entropyData0 = (vcount << 16) | timer0;
 					BinaryPrimitives.WriteUInt32LittleEndian(sha1Msg[(5 * 4)..], entropyData0);
 
+					// each vframe takes 560190 cpu cycles
+					// every 64 cpu cycles, timer0 increments
 					// timer0 overflows after 65536 increments (16 bit counter)
 					// OSi_TickCounter is the amount of overflows, so increments every 4194304 cpu cycles
 					var presumedTickCount = (uint)((ulong)vframe * 560190 / 4194304);
@@ -197,12 +210,12 @@ public partial class MainViewModel : ObservableObject
 						var entropyData1 = (uint)(param.SeedParameters.LowerMac << 16) ^ tickCount;
 						BinaryPrimitives.WriteUInt32LittleEndian(sha1Msg[(6 * 4)..], entropyData1);
 
-						for (var i = 0; i < 2; i++)
-						{
+						//for (var i = 0; i < 2; i++)
+						//{
 							// assuming emulator is correct, there should only be 2 gxstat values possible here
 							// case 1: 0x86000000
 							// case 2: 0x86000002
-							var gxStat = i == 0 ? 0x86000000 : 0x86000002;
+							var gxStat = 0x86000000;//i == 0 ? 0x86000000 : 0x86000002;
 							var entropyData2 = param.SeedParameters.UpperMac ^ vframe ^ gxStat;
 							BinaryPrimitives.WriteUInt32LittleEndian(sha1Msg[(7 * 4)..], entropyData2);
 
@@ -245,55 +258,17 @@ public partial class MainViewModel : ObservableObject
 								PkmnSHA1.HashBlock(sha1Msg, sha1Hash);
 								var seed = BinaryPrimitives.ReadUInt64LittleEndian(sha1Hash);
 
-								var accuracyStage = 0;
-								var accuracy = 0;
 								var allBattleTurnsSatified = true;
-								foreach (var battleTurnOutcome in param.BattleTurnOutcomes)
+								// ReSharper disable once ForCanBeConvertedToForeach
+								// ReSharper disable once LoopCanBeConvertedToQuery
+								var numTurns = param.BattleTurnOutcomes.Count;
+								var battleTurnOutcomes = param.BattleTurnOutcomes;
+								for (var k = 0; k < numTurns; k++)
 								{
-									if (accuracyStage > -6)
-									{
-										accuracyStage--;
-										accuracy = accuracyStage switch
-										{
-											-1 => 75,
-											-2 => 60,
-											-3 => 50,
-											-4 => 42,
-											-5 => 37,
-											-6 => 33,
-											_ => throw new InvalidOperationException(),
-										};
-									}
-
-									AdvanceBattleRng(ref seed); // sand attack acc check (don't care)
-
-									if (battleTurnOutcome == BattleTurnOutcome.OdorSleuth)
-									{
-										// no acc check here
-										continue;
-									}
-
-									var accCheck = (int)((AdvanceBattleRng(ref seed) * 100) >> 32);
-									var accCheckHit = accCheck < accuracy;
-									var wantHit = battleTurnOutcome is BattleTurnOutcome.LeerHit or BattleTurnOutcome.TackleHit or BattleTurnOutcome.TackleHitCrit;
-									if (accCheckHit != wantHit)
+									if (!CheckBattleRng(ref seed, battleTurnOutcomes[k]))
 									{
 										allBattleTurnsSatified = false;
 										break;
-									}
-
-									if (battleTurnOutcome is BattleTurnOutcome.TackleHit or BattleTurnOutcome.TackleHitCrit)
-									{
-										var critCheck = (int)((AdvanceBattleRng(ref seed) * 16) >> 32);
-										var gotCrit = critCheck == 0;
-										var wantCrit = battleTurnOutcome == BattleTurnOutcome.TackleHitCrit;
-										if (gotCrit != wantCrit)
-										{
-											allBattleTurnsSatified = false;
-											break;
-										}
-
-										AdvanceBattleRng(ref seed); // damage roll (don't care)
 									}
 								}
 
@@ -302,14 +277,14 @@ public partial class MainViewModel : ObservableObject
 									continue;
 								}
 
-								var seedState = new SeedState(seed, timer0, vcount, vframe, dateTime);
+								var seedState = new SeedState(seed, (ushort)timer0, (ushort)vcount, gxStat, tickCount, vframe, dateTime);
 								param.ComputedSeeds.Add(seedState);
 								if (param.ComputedSeeds.Count >= MAX_SEEDS_ALLOWED)
 								{
 									return;
 								}
 							}
-						}
+						//}
 					}
 				}
 			}
@@ -332,17 +307,17 @@ public partial class MainViewModel : ObservableObject
 		_computedSeeds = [];
 		var maxParallelism = Environment.ProcessorCount * 3 / 4;
 		var threads = new Thread[maxParallelism];
-		var vCountPerThread = 263 / (uint)maxParallelism;
+		var timer0PerFrame = 0x10000 / (uint)maxParallelism;
 		for (var i = 0; i < maxParallelism; i++)
 		{
 			threads[i] = new Thread(ComputeSeedThreadProc) { IsBackground = true };
-			var threadParam = new ComputeSeedThreadParam(parameters, (uint)(i * vCountPerThread), (uint)((i + 1) * vCountPerThread), _computedSeeds, _battleTurnOutcomes);
+			var threadParam = new ComputeSeedThreadParam(parameters, (uint)(i * timer0PerFrame), (uint)((i + 1) * timer0PerFrame), _computedSeeds, _battleTurnOutcomes);
 			threads[i].Start(threadParam);
 		}
 
 		// last couple of vcounts covered here
 		{
-			var threadParam = new ComputeSeedThreadParam(parameters, (uint)maxParallelism * vCountPerThread, 262, _computedSeeds, _battleTurnOutcomes);
+			var threadParam = new ComputeSeedThreadParam(parameters, (uint)maxParallelism * timer0PerFrame, 0x10000, _computedSeeds, _battleTurnOutcomes);
 			ComputeSeedThreadProc(threadParam);
 		}
 
@@ -359,116 +334,275 @@ public partial class MainViewModel : ObservableObject
 			return;
 		}
 
+		if (_computedSeeds.IsEmpty)
+		{
+			CurrentMessage = "Could not determine RNG seed (wrong VFrame window?)";
+			return;
+		}
+
+		if (_computedSeeds.Count == 1)
+		{
+			_ = _computedSeeds.TryPeek(out var seedState);
+			var seed = seedState.Seed;
+			for (var i = 0; i < _numBattleRngRolls; i++)
+			{
+				ReverseBattleRng(ref seed);
+			}
+
+			CurrentMessage = $"Found Initial Seed {seed:X016}, Current Seed State: Seed {seedState.Seed:X016}, Timer0 {seedState.Timer0:X04}, " +
+			                 $"VCount {seedState.VCount:X03}, GxStat {seedState.GxStat:X08}, TickCount {seedState.TickCount:X}, " +
+			                 $"VFrame {seedState.VFrame}, DateTime {seedState.DateTime.ToString(CultureInfo.InvariantCulture)}";
+			return;
+		}
+
 		CurrentMessage = $"Computed {_computedSeeds.Count} seeds";
 	}
 
 	private ConcurrentBag<SeedState> _computedSeeds = [];
 
-	private enum BattleTurnOutcome
+	private enum PlayerTurnOutcome : byte
 	{
-		LeerMiss,
-		TackleMiss,
+		SupersonicHit,
+		SupersonicMiss,
+		GrowlHit,
+	}
+
+	private enum EnemyTurnOutcome : byte
+	{
+		ConfusionSelfHit,
 		LeerHit,
 		TackleHit,
 		TackleHitCrit,
 		OdorSleuth,
 	}
 
+	private readonly record struct BattleTurnOutcome(
+		PlayerTurnOutcome PlayerTurnOutcome, bool QuickClawActivated,
+		EnemyTurnOutcome EnemyTurnOutcome, bool SnappedOutOfConfusion,
+		int TurnsSinceConfusion, int RngRollsSinceConfusion);
+
 	private List<BattleTurnOutcome> _battleTurnOutcomes = [];
-	private int _currentAccuracyStage;
+	private int _turnsSinceConfusion;
+	private int _battleRngRollConfusionTriggerNum;
 	private int _numBattleRngRolls;
 
 	[ObservableProperty]
-	private int _battleTurnOutcomeSelection;
+	private int _playerTurnOutcomeSelection;
 
-	private record AddMoveThreadParam(ConcurrentBag<SeedState> ComputedSeeds, ConcurrentBag<SeedState> NextComputedSeeds, BattleTurnOutcome BattleTurnOutcome, int Accuracy);
+	[ObservableProperty]
+	private bool _quickClawActivated;
 
-	private static void AddMoveThreadProc(object? threadParam)
+	[ObservableProperty]
+	private int _enemyTurnOutcomeSelection;
+
+	[ObservableProperty]
+	private bool _snappedOutOfConfusion;
+
+	private record AddTurnThreadParam(ConcurrentBag<SeedState> ComputedSeeds, ConcurrentBag<SeedState> NextComputedSeeds, BattleTurnOutcome BattleTurnOutcome);
+
+	private static bool CheckBattleRng(ref ulong battleRng, BattleTurnOutcome battleTurnOutcome)
 	{
-		var param = (AddMoveThreadParam)threadParam!;
+		var quickClawCheck = (int)((AdvanceBattleRng(ref battleRng) * 100) >> 32);
+		var quickClawActivated = quickClawCheck < 20;
+
+		if (quickClawActivated != battleTurnOutcome.QuickClawActivated)
+		{
+			return false;
+		}
+
+		switch (battleTurnOutcome.PlayerTurnOutcome)
+		{
+			case PlayerTurnOutcome.SupersonicHit or PlayerTurnOutcome.SupersonicMiss:
+			{
+				var accCheckRoll = (int)((AdvanceBattleRng(ref battleRng) * 100) >> 32);
+				var accCheckHit = accCheckRoll < 55;
+				var wantHit = battleTurnOutcome.PlayerTurnOutcome == PlayerTurnOutcome.SupersonicHit;
+				if (accCheckHit != wantHit)
+				{
+					return false;
+				}
+
+				if (accCheckHit)
+				{
+					AdvanceBattleRng(ref battleRng); // confusion turn count
+				}
+
+				break;
+			}
+
+			case PlayerTurnOutcome.GrowlHit:
+				// acc check (100%, don't care)
+				AdvanceBattleRng(ref battleRng);
+				break;
+		}
+
+		if (battleTurnOutcome.SnappedOutOfConfusion)
+		{
+			var confusionTurnCountRng = battleRng;
+			for (var i = 0; i < battleTurnOutcome.RngRollsSinceConfusion; i++)
+			{
+				ReverseBattleRng(ref confusionTurnCountRng);
+			}
+
+			var confusionTurnCount = (int)((AdvanceBattleRng(ref confusionTurnCountRng) * 4) >> 32);
+			confusionTurnCount += 2;
+			if (confusionTurnCount != battleTurnOutcome.TurnsSinceConfusion)
+			{
+				return false;
+			}
+		}
+		else if (battleTurnOutcome.TurnsSinceConfusion > 0)
+		{
+			var selfHitCheckRoll = (int)((AdvanceBattleRng(ref battleRng) * 100) >> 32);
+			var gotSelfHit = selfHitCheckRoll < 50;
+			var wantSelfHit = battleTurnOutcome.EnemyTurnOutcome == EnemyTurnOutcome.ConfusionSelfHit;
+			if (gotSelfHit != wantSelfHit)
+			{
+				return false;
+			}
+		}
+
+		switch (battleTurnOutcome.EnemyTurnOutcome)
+		{
+			case EnemyTurnOutcome.ConfusionSelfHit:
+			{
+				AdvanceBattleRng(ref battleRng); // damage roll (don't care)
+				break;
+			}
+
+			case EnemyTurnOutcome.LeerHit:
+			{
+				AdvanceBattleRng(ref battleRng); // accuracy roll (don't care)
+				break;
+			}
+
+			case EnemyTurnOutcome.TackleHit:
+			case EnemyTurnOutcome.TackleHitCrit:
+			{
+				AdvanceBattleRng(ref battleRng); // accuracy roll (don't care)
+				var critCheckRoll = (int)((AdvanceBattleRng(ref battleRng) * 16) >> 32); // crit roll
+				var gotCrit = critCheckRoll == 0;
+				var wantCrit = battleTurnOutcome.EnemyTurnOutcome == EnemyTurnOutcome.TackleHitCrit;
+				if (gotCrit != wantCrit)
+				{
+					return false;
+				}
+
+				AdvanceBattleRng(ref battleRng); // damage roll (don't care)
+				break;
+			}
+
+			case EnemyTurnOutcome.OdorSleuth:
+				// no rng calls
+				break;
+
+			default:
+				throw new InvalidOperationException();
+		}
+
+		return true;
+	}
+
+	private static void AddTurnThreadProc(object? threadParam)
+	{
+		var param = (AddTurnThreadParam)threadParam!;
 		while (param.ComputedSeeds.TryTake(out var computedSeedState))
 		{
 			var seed = computedSeedState.Seed;
-			AdvanceBattleRng(ref seed); // sand attack acc check (don't care)
-			if (param.BattleTurnOutcome == BattleTurnOutcome.OdorSleuth)
-			{
-				// no more rng calls if we got oder sleuth
-				param.NextComputedSeeds.Add(computedSeedState with { Seed = seed });
-				continue;
-			}
-
-			var accCheck = (int)((AdvanceBattleRng(ref seed) * 100) >> 32);
-			var accCheckHit = accCheck < param.Accuracy;
-			var wantHit = param.BattleTurnOutcome is BattleTurnOutcome.LeerHit or BattleTurnOutcome.TackleHit or BattleTurnOutcome.TackleHitCrit;
-			if (accCheckHit != wantHit)
+			if (!CheckBattleRng(ref seed, param.BattleTurnOutcome))
 			{
 				continue;
-			}
-
-			if (param.BattleTurnOutcome is BattleTurnOutcome.TackleHit or BattleTurnOutcome.TackleHitCrit)
-			{
-				var critCheck = (int)((AdvanceBattleRng(ref seed) * 16) >> 32);
-				var gotCrit = critCheck == 0;
-				var wantCrit = param.BattleTurnOutcome == BattleTurnOutcome.TackleHitCrit;
-				if (gotCrit != wantCrit)
-				{
-					continue;
-				}
-
-				AdvanceBattleRng(ref seed); // damage roll (don't care)
 			}
 
 			param.NextComputedSeeds.Add(computedSeedState with { Seed = seed });
 		}
 	}
 
-	public void AddMove()
+	public void AddTurn()
 	{
-		if (!Enum.IsDefined((BattleTurnOutcome)BattleTurnOutcomeSelection))
+		if (!Enum.IsDefined((PlayerTurnOutcome)PlayerTurnOutcomeSelection))
 		{
-			CurrentMessage = "Battle Turn Outcome not set";
+			CurrentMessage = "Player Turn Outcome not set";
 			return;
 		}
 
-		var battleTurnOutcome = (BattleTurnOutcome)BattleTurnOutcomeSelection;
-		_battleTurnOutcomes.Add(battleTurnOutcome);
-		_numBattleRngRolls += battleTurnOutcome switch
+		if (!Enum.IsDefined((EnemyTurnOutcome)EnemyTurnOutcomeSelection))
 		{
-			BattleTurnOutcome.LeerMiss or BattleTurnOutcome.TackleMiss or BattleTurnOutcome.LeerHit => 2,
-			BattleTurnOutcome.TackleHit or BattleTurnOutcome.TackleHitCrit => 4,
-			BattleTurnOutcome.OdorSleuth => 1, // oder sleuth doesn't produce any rng calls (always succeeds)
+			CurrentMessage = "Player Turn Outcome not set";
+			return;
+		}
+
+		var playerTurnOutcome = (PlayerTurnOutcome)PlayerTurnOutcomeSelection;
+		var enemyTurnOutcome = (EnemyTurnOutcome)EnemyTurnOutcomeSelection;
+
+		if (enemyTurnOutcome == EnemyTurnOutcome.ConfusionSelfHit && SnappedOutOfConfusion)
+		{
+			CurrentMessage = "Can't snap out of confusion while self hitting";
+			return;
+		}
+
+		if (_turnsSinceConfusion == 0 && SnappedOutOfConfusion)
+		{
+			CurrentMessage = "Can't snap out of confusion without confusion inflicted a previous turn";
+			return;
+		}
+
+		_numBattleRngRolls++; // quick claw rng roll
+		_numBattleRngRolls += playerTurnOutcome switch
+		{
+			PlayerTurnOutcome.SupersonicHit => 2, // 1 acc check, 1 confusion turn count roll
+			PlayerTurnOutcome.SupersonicMiss => 1, // 1 acc check
+			PlayerTurnOutcome.GrowlHit => 1, // 1 acc check
 			_ => throw new InvalidOperationException()
 		};
 
-		if (_currentAccuracyStage > -6)
+		switch (_turnsSinceConfusion)
 		{
-			_currentAccuracyStage--;
+			case 0 when playerTurnOutcome == PlayerTurnOutcome.SupersonicHit:
+				_battleRngRollConfusionTriggerNum = _numBattleRngRolls - 1;
+				_turnsSinceConfusion++;
+				break;
+			case > 0:
+				_turnsSinceConfusion++;
+				break;
 		}
+
+		var rngRollsSinceConfusion = _numBattleRngRolls - _battleRngRollConfusionTriggerNum;
+		var battleTurnOutcome = new BattleTurnOutcome(playerTurnOutcome, QuickClawActivated, enemyTurnOutcome, SnappedOutOfConfusion, _turnsSinceConfusion, rngRollsSinceConfusion);
+		_battleTurnOutcomes.Add(battleTurnOutcome);
+
+		if (SnappedOutOfConfusion)
+		{
+			_turnsSinceConfusion = 0;
+		}
+
+		if (_turnsSinceConfusion > 0)
+		{
+			_numBattleRngRolls++; // confusion self hit check
+		}
+
+		_numBattleRngRolls += enemyTurnOutcome switch
+		{
+			EnemyTurnOutcome.ConfusionSelfHit => 1, // 1 damage roll
+			EnemyTurnOutcome.LeerHit => 1, // 1 acc check
+			EnemyTurnOutcome.TackleHit or EnemyTurnOutcome.TackleHitCrit => 3, // 1 acc check, 1 crit check, 1 damage roll
+			EnemyTurnOutcome.OdorSleuth => 0, // oder sleuth doesn't produce any rng calls (bypasses acc checks)
+			_ => throw new InvalidOperationException()
+		};
 
 		if (_computedSeeds.IsEmpty)
 		{
-			CurrentMessage = $"Added Battle Turn Outcome {battleTurnOutcome}, {_battleTurnOutcomes.Count} turn outcomes currently set";
+			CurrentMessage = $"Added Battle Turn Outcome, {_battleTurnOutcomes.Count} turn outcomes currently set";
 			return;
 		}
-
-		var accuracy = _currentAccuracyStage switch
-		{
-			-1 => 75,
-			-2 => 60,
-			-3 => 50,
-			-4 => 42,
-			-5 => 37,
-			-6 => 33,
-			_ => throw new InvalidOperationException(),
-		};
 
 		var maxParallelism = Environment.ProcessorCount * 3 / 4;
 		var threads = new Thread[maxParallelism];
 		var nextComputedSeeds = new ConcurrentBag<SeedState>();
 		for (var i = 0; i < maxParallelism; i++)
 		{
-			threads[i] = new Thread(AddMoveThreadProc) { IsBackground = true };
-			var threadParam = new AddMoveThreadParam(_computedSeeds, nextComputedSeeds, battleTurnOutcome, accuracy);
+			threads[i] = new Thread(AddTurnThreadProc) { IsBackground = true };
+			var threadParam = new AddTurnThreadParam(_computedSeeds, nextComputedSeeds, battleTurnOutcome);
 			threads[i].Start(threadParam);
 		}
 
@@ -480,14 +614,13 @@ public partial class MainViewModel : ObservableObject
 		_computedSeeds = nextComputedSeeds;
 		if (_computedSeeds.IsEmpty)
 		{
-			GC.Collect();
 			CurrentMessage = "Could not determine RNG seed (wrong VFrame window?)";
 			return;
 		}
 
 		if (_computedSeeds.Count == 1)
 		{
-			_ = _computedSeeds.TryTake(out var seedState);
+			_ = _computedSeeds.TryPeek(out var seedState);
 			var seed = seedState.Seed;
 			for (var i = 0; i < _numBattleRngRolls; i++)
 			{
@@ -495,11 +628,65 @@ public partial class MainViewModel : ObservableObject
 			}
 
 			CurrentMessage = $"Found Initial Seed {seed:X016}, Current Seed State: Seed {seedState.Seed:X016}, Timer0 {seedState.Timer0:X04}, " +
-			                 $"VCount {seedState.VCount:X03}, VFrame {seedState.VFrame}, DateTime {seedState.DateTime.ToString(CultureInfo.InvariantCulture)}";
+			                 $"VCount {seedState.VCount:X03}, GxStat {seedState.GxStat:X08}, TickCount {seedState.TickCount:X}, " +
+			                 $"VFrame {seedState.VFrame}, DateTime {seedState.DateTime.ToString(CultureInfo.InvariantCulture)}";
 			return;
 		}
 
 		CurrentMessage = $"{_computedSeeds.Count} seeds remaining";
+	}
+
+	public void CheckAnySeedUnique()
+	{
+		// nothing to do if there's less than 2 seeds
+		if (_computedSeeds.Count < 2)
+		{
+			return;
+		}
+
+		var takenComputedSeeds = new ConcurrentBag<SeedState>();
+		_ = _computedSeeds.TryPeek(out var exSeedState);
+		var exSeed = exSeedState.Seed;
+		var anySeedUnique = false;
+		while (_computedSeeds.TryTake(out var seedState))
+		{
+			takenComputedSeeds.Add(seedState);
+
+			if (seedState.Seed != exSeed)
+			{
+				anySeedUnique = true;
+				break;
+			}
+		}
+
+		if (anySeedUnique)
+		{
+			while (takenComputedSeeds.TryTake(out var seedState))
+			{
+				_computedSeeds.Add(seedState);
+			}
+
+			CurrentMessage = "Unique seeds are still present";
+			return;
+		}
+
+		var message = "All Seeds are identical";
+		while (takenComputedSeeds.TryTake(out var seedState))
+		{
+			var seed = seedState.Seed;
+			for (var i = 0; i < _numBattleRngRolls; i++)
+			{
+				ReverseBattleRng(ref seed);
+			}
+
+			message += $"\r\nInitial Seed {seed:X016}, Current Seed State: Seed {seedState.Seed:X016}, Timer0 {seedState.Timer0:X04}, " +
+			           $"VCount {seedState.VCount:X03}, GxStat {seedState.GxStat:X08}, TickCount {seedState.TickCount:X}, " +
+			           $"VFrame {seedState.VFrame}, DateTime {seedState.DateTime.ToString(CultureInfo.InvariantCulture)}";
+
+			_computedSeeds.Add(seedState);
+		}
+
+		CurrentMessage = message;
 	}
 
 	public void Reset()
@@ -507,8 +694,10 @@ public partial class MainViewModel : ObservableObject
 		_computedSeeds = [];
 		_battleTurnOutcomes = [];
 		_numBattleRngRolls = 0;
-		_currentAccuracyStage = 0;
+		_turnsSinceConfusion = 0;
+		_battleRngRollConfusionTriggerNum = 0;
 		GC.Collect();
+		CurrentMessage = "Seeds/Turns reset";
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -19,13 +19,18 @@ public partial class MainWindow : Window
 		_mainViewModel.ComputeSeeds();
 	}
 
-	public void AddMoveHandler(object sender, RoutedEventArgs args)
+	public void AddTurnHandler(object sender, RoutedEventArgs args)
 	{
-		_mainViewModel.AddMove();
+		_mainViewModel.AddTurn();
 	}
 
 	public void ResetHandler(object sender, RoutedEventArgs args)
 	{
 		_mainViewModel.Reset();
+	}
+
+	public void AnySeedUniqueHandler(object sender, RoutedEventArgs args)
+	{
+		_mainViewModel.CheckAnySeedUnique();
 	}
 }
